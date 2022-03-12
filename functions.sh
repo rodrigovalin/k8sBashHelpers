@@ -189,6 +189,45 @@ choose_all(){
     fi
 }
 
+# Retrieves the Automation Config for a resource
+mdb-ac() {
+    local mdb
+    local jsn
+    local link
+    local group
+    local url
+
+    local credentials
+    local public_key
+    local private_key
+
+    mdb=$(choose-mdb "$1")
+    jsn=$(mktemp)
+
+    kubectl get "${mdb}" -o json > "${jsn}"
+    link=$(jq -r .status.link "$jsn")
+    credentials=$(jq -r .spec.credentials "$jsn")
+
+    group=$(echo "$link" | grep -o '[^/]*$') # gets group from link
+    url=$(echo "$link" | cut -d'/' -f 1-3)
+
+    public_key=$(kubectl get "secret/$credentials" -o jsonpath='{.data.publicKey}' | base64 --decode)
+    private_key=$(kubectl get "secret/$credentials" -o jsonpath='{.data.privateKey}' | base64 --decode)
+
+    if ! kubectl get pod/curlo &> /dev/null; then
+        # have a curlo Pod running
+        kubectl run --image curlimages/curl curlo --restart Never -- sleep infinity
+        sleep 2
+    fi
+
+    kubectl exec curlo -- curl --silent -q -u "${public_key}:${private_key}" --digest "$url/api/public/v1.0/groups/${group}/automationConfig" | jq 'del(.mongoDbVersions)'
+}
+
+# Access prometheus endpoint from 1 Pod.
+mdb-prom() {
+    echo "Not implemented"
+}
+
 # Changes the default Namespace.
 # If $1 is not provided, show a list of Namespaces instead.
 kns() {
@@ -200,6 +239,10 @@ kns() {
     fi
 
     kubectl config set-context --current --namespace="${namespace}"
+}
+
+choose-mdb() {
+    kubectl get mdb --no-headers -o name | fzf
 }
 
 choose-ns() {
